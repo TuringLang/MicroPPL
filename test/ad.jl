@@ -9,7 +9,7 @@
             f = DynamicPPL.LogDensityFunction(m, varinfo)
 
             # use ForwardDiff result as reference
-            ad_forwarddiff_f = LogDensityProblemsAD.ADgradient(
+            ad_forwarddiff_f = DynamicPPL._make_ad_gradient(
                 ADTypes.AutoForwardDiff(; chunksize=0), f
             )
             # convert to `Vector{Float64}` to avoid `ReverseDiff` initializing the gradients to Integer 0
@@ -27,7 +27,7 @@
                 if adtype isa ADTypes.AutoMooncake && varinfo isa DynamicPPL.SimpleVarInfo
                     @test_broken 1 == 0
                 else
-                    ad_f = LogDensityProblemsAD.ADgradient(adtype, f)
+                    ad_f = DynamicPPL._make_ad_gradient(adtype, f)
                     _, grad = LogDensityProblems.logdensity_and_gradient(ad_f, θ)
                     @test grad ≈ ref_grad
                 end
@@ -71,6 +71,6 @@
         spl = Sampler(MyEmptyAlg())
         vi = VarInfo(model)
         ldf = DynamicPPL.LogDensityFunction(vi, model, SamplingContext(spl))
-        @test LogDensityProblemsAD.ADgradient(AutoReverseDiff(; compile=true), ldf) isa Any
+        @test DynamicPPL._make_ad_gradient(AutoReverseDiff(; compile=true), ldf) isa Any
     end
 end

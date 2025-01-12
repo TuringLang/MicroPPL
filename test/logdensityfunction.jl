@@ -8,11 +8,11 @@ using Test, DynamicPPL, ADTypes, LogDensityProblems, LogDensityProblemsAD, Rever
         @test DynamicPPL.setmodel(ℓ, model).model == model
 
         # ReverseDiff related
-        ∇ℓ = LogDensityProblemsAD.ADgradient(:ReverseDiff, ℓ; compile=Val(false))
+        ∇ℓ = DynamicPPL._make_ad_gradient(:ReverseDiff, ℓ; compile=Val(false))
         @test DynamicPPL.getmodel(∇ℓ) == model
         @test DynamicPPL.getmodel(DynamicPPL.setmodel(∇ℓ, model, AutoReverseDiff())) ==
             model
-        ∇ℓ = LogDensityProblemsAD.ADgradient(:ReverseDiff, ℓ; compile=Val(true))
+        ∇ℓ = DynamicPPL._make_ad_gradient(:ReverseDiff, ℓ; compile=Val(true))
         new_∇ℓ = DynamicPPL.setmodel(∇ℓ, model, AutoReverseDiff())
         @test DynamicPPL.getmodel(new_∇ℓ) == model
         # HACK(sunxd): rely on internal implementation detail, i.e., naming of `compiledtape`

@@ -108,7 +108,7 @@ function setmodel(
     #    ReverseDiff.jl in compiled mode will cache the compiled tape, which means that just
     #    replacing the corresponding field with the new model won't be sufficient to obtain
     #    the correct gradients.
-    return LogDensityProblemsAD.ADgradient(
+    return _make_ad_gradient(
         adtype, setmodel(LogDensityProblemsAD.parent(f), model)
     )
 end
@@ -145,18 +145,22 @@ end
 # TODO: should we instead implement and call on `length(f.varinfo)` (at least in the cases where no sampler is involved)?
 LogDensityProblems.dimension(f::LogDensityFunction) = length(getparams(f))
 
+# List of 'officially supported' AD backends (in that we have passing tests for
+# them in the Turing test suite)
+SupportedADTypes = Union{
+    ADTypes.AutoForwardDiff,ADTypes.AutoReverseDiff,ADTypes.AutoZygote,ADTypes.AutoMooncake
+}
+
 # This is important for performance -- one needs to provide `ADGradient` with a vector of
 # parameters, or DifferentiationInterface will not have sufficient information to e.g.
 # compile a rule for Mooncake (because it won't know the type of the input), or pre-allocate
 # a tape when using ReverseDiff.jl.
-function _make_ad_gradient(ad::ADTypes.AbstractADType, ℓ::LogDensityFunction)
+function _make_ad_gradient(ad::Union{ADTypes.AutoMooncake,ADTypes.AutoReverseDiff}, ℓ::LogDensityFunction)
     x = map(identity, getparams(ℓ)) # ensure we concretise the elements of the params
     return LogDensityProblemsAD.ADgradient(ad, ℓ; x)
 end
 
-function LogDensityProblemsAD.ADgradient(ad::ADTypes.AutoMooncake, f::LogDensityFunction)
-    return _make_ad_gradient(ad, f)
-end
-function LogDensityProblemsAD.ADgradient(ad::ADTypes.AutoReverseDiff, f::LogDensityFunction)
-    return _make_ad_gradient(ad, f)
+function _make_ad_gradient(ad::ADTypes.AbstractADType, ℓ::LogDensityFunction)
+    ad isa SupportedADTypes || @warn "[DynamicPPL]: AD backend $ad is not officially supported, use at your own risk"
+    return LogDensityProblemsAD.ADgradient(ad, ℓ)
 end
