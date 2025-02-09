@@ -1,4 +1,10 @@
-@testset "AD: ForwardDiff, ReverseDiff, and Mooncake" begin
+TESTED_ADTYPES = [
+    ADTypes.AutoReverseDiff(; compile=false),
+    ADTypes.AutoReverseDiff(; compile=true),
+    ADTypes.AutoMooncake(; config=nothing),
+]
+
+@testset "AD correctness" begin
     @testset "$(m.f)" for m in DynamicPPL.TestUtils.DEMO_MODELS
         f = DynamicPPL.LogDensityFunction(m)
         rand_param_values = DynamicPPL.TestUtils.rand_prior_true(m)
@@ -6,31 +12,19 @@
         varinfos = DynamicPPL.TestUtils.setup_varinfos(m, rand_param_values, vns)
 
         @testset "$(short_varinfo_name(varinfo))" for varinfo in varinfos
-            f = DynamicPPL.LogDensityFunction(m, varinfo)
-
-            # use ForwardDiff result as reference
-            ad_forwarddiff_f = LogDensityProblemsAD.ADgradient(
-                ADTypes.AutoForwardDiff(; chunksize=0), f
-            )
             # convert to `Vector{Float64}` to avoid `ReverseDiff` initializing the gradients to Integer 0
             # reference: https://github.com/TuringLang/DynamicPPL.jl/pull/571#issuecomment-1924304489
-            θ = convert(Vector{Float64}, varinfo[:])
-            logp, ref_grad = LogDensityProblems.logdensity_and_gradient(ad_forwarddiff_f, θ)
+            params = convert(Vector{Float64}, varinfo[:])
+            # Use ForwardDiff as reference AD backend
+            ref_logp, ref_grad = DynamicPPL.TestUtils.AD.ad_ldp(
+                m, params, ADTypes.AutoForwardDiff(), varinfo
+            )
 
-            @testset "$adtype" for adtype in [
-                ADTypes.AutoReverseDiff(; compile=false),
-                ADTypes.AutoReverseDiff(; compile=true),
-                ADTypes.AutoMooncake(; config=nothing),
-            ]
-                # Mooncake can't currently handle something that is going on in
-                # SimpleVarInfo{<:VarNamedVector}. Disable all SimpleVarInfo tests for now.
-                if adtype isa ADTypes.AutoMooncake && varinfo isa DynamicPPL.SimpleVarInfo
-                    @test_broken 1 == 0
-                else
-                    ad_f = LogDensityProblemsAD.ADgradient(adtype, f)
-                    _, grad = LogDensityProblems.logdensity_and_gradient(ad_f, θ)
-                    @test grad ≈ ref_grad
-                end
+            @testset "$adtype" for adtype in TESTED_ADTYPES
+                @info "Testing AD for $(m.f) - $(short_varinfo_name(varinfo)) - $adtype"
+                logp, grad = DynamicPPL.TestUtils.AD.ad_ldp(m, params, adtype, varinfo)
+                @test logp ≈ ref_logp
+                @test grad ≈ ref_grad
             end
         end
     end
