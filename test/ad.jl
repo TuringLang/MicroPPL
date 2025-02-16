@@ -1,6 +1,8 @@
 using DynamicPPL: LogDensityFunction
+using Enzyme: Enzyme
+using EnzymeCore: set_runtime_activity, Forward, Reverse
 
-@testset "Automatic differentiation" begin
+@testset verbose = true "Automatic differentiation" begin
     @testset "Unsupported backends" begin
         @model demo() = x ~ Normal()
         @test_logs (:warn, r"not officially supported") LogDensityFunction(
@@ -23,9 +25,11 @@ using DynamicPPL: LogDensityFunction
                 ref_logp, ref_grad = LogDensityProblems.logdensity_and_gradient(ref_ldf, x)
 
                 @testset "$adtype" for adtype in [
-                    AutoReverseDiff(; compile=false),
-                    AutoReverseDiff(; compile=true),
-                    AutoMooncake(; config=nothing),
+                    AutoEnzyme(; mode=set_runtime_activity(Forward, true)),
+                    AutoEnzyme(; mode=set_runtime_activity(Reverse, true)),
+                    # AutoReverseDiff(; compile=false),
+                    # AutoReverseDiff(; compile=true),
+                    # AutoMooncake(; config=nothing),
                 ]
                     @info "Testing AD on: $(m.f) - $(short_varinfo_name(varinfo)) - $adtype"
 
