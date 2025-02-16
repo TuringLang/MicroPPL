@@ -1,6 +1,6 @@
 using DynamicPPL: LogDensityFunction
 using Enzyme: Enzyme
-using EnzymeCore: set_runtime_activity, Forward, Reverse
+using EnzymeCore: set_runtime_activity, Forward, Reverse, ReverseMode
 
 @testset verbose = true "Automatic differentiation" begin
     @testset "Unsupported backends" begin
@@ -35,10 +35,14 @@ using EnzymeCore: set_runtime_activity, Forward, Reverse
 
                     # Put predicates here to avoid long lines
                     is_mooncake = adtype isa AutoMooncake
+                    is_enzyme_reverse = adtype isa AutoEnzyme && adtype.mode isa ReverseMode
                     is_1_10 = v"1.10" <= VERSION < v"1.11"
                     is_1_11 = v"1.11" <= VERSION < v"1.12"
                     is_svi_vnv = varinfo isa SimpleVarInfo{<:DynamicPPL.VarNamedVector}
                     is_svi_od = varinfo isa SimpleVarInfo{<:OrderedDict}
+                    is_svi_ref = varinfo isa SimpleVarInfo{<:Any,<:Ref}
+                    is_svi_od_not_ref = is_svi_od && !is_svi_ref
+                    is_svi_vnv_not_ref = is_svi_vnv && !is_svi_ref
 
                     # Mooncake doesn't work with several combinations of SimpleVarInfo.
                     if is_mooncake && is_1_11 && is_svi_vnv
@@ -52,6 +56,12 @@ using EnzymeCore: set_runtime_activity, Forward, Reverse
                         @test_throws Mooncake.MooncakeRuleCompilationError DynamicPPL.setadtype(
                             ref_ldf, adtype
                         )
+                    elseif string(m.f) == "demo_dot_assume_dot_observe" &&
+                        is_enzyme_reverse &&
+                        (is_svi_od || is_svi_vnv_not_ref) &&
+                        is_1_11
+                        # TODO: report upstream, this segfaults
+                        @test_broken false
                     else
                         ldf = DynamicPPL.setadtype(ref_ldf, adtype)
                         logp, grad = LogDensityProblems.logdensity_and_gradient(ldf, x)
