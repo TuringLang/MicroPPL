@@ -1,101 +1,122 @@
-using Accessors
-using ADTypes
+using Distributions
 using DynamicPPL
-using AbstractMCMC
-using AbstractPPL
-using Bijectors
-using DifferentiationInterface
-using Distributions
-using DistributionsAD
-using Documenter
-using ForwardDiff
-using LogDensityProblems, LogDensityProblemsAD
-using MacroTools
-using MCMCChains
-using Mooncake: Mooncake
-using StableRNGs
-using Tracker
-using ReverseDiff
-using Zygote
-using Compat
-
-using Distributed
-using LinearAlgebra
-using Pkg
 using Random
-using Serialization
 using Test
-using Distributions
-using LinearAlgebra # Diagonal
 
-using JET: JET
-
-using Combinatorics: combinations
-using OrderedCollections: OrderedSet
-
-using DynamicPPL: getargs_dottilde, getargs_tilde, Selector
-
-const GROUP = get(ENV, "GROUP", "All")
 Random.seed!(100)
 
-include("test_util.jl")
-
-@testset verbose = true "DynamicPPL.jl" begin
-    # The tests are split into two groups so that CI can run in parallel. The
-    # groups are chosen to make both groups take roughly the same amount of
-    # time, but beyond that there is no particular reason for the split.
-    if GROUP == "All" || GROUP == "Group1"
-        include("utils.jl")
-        include("compiler.jl")
-        include("varnamedvector.jl")
-        include("varinfo.jl")
-        include("simple_varinfo.jl")
-        include("model.jl")
-        include("sampler.jl")
-        include("independence.jl")
-        include("distribution_wrappers.jl")
-        include("logdensityfunction.jl")
-        include("linking.jl")
-        include("serialization.jl")
-        include("pointwise_logdensities.jl")
-        include("lkj.jl")
-        include("deprecated.jl")
+@testset verbose = true "submodel tests" begin
+    @testset "sanity check with original models" begin
+        @model f() = x ~ Normal()
+        model = f()
+        vi = VarInfo(model)
+        # check parent varinfo
+        @test Set(keys(vi)) == Set([@varname(x)])
+        @test vi[@varname(x)] isa Float64
+        # check logp
+        @test DynamicPPL.getlogp(vi) ≈ logpdf(Normal(), vi[@varname(x)])
     end
 
-    if GROUP == "All" || GROUP == "Group2"
-        include("contexts.jl")
-        include("context_implementations.jl")
-        include("threadsafe.jl")
-        include("debug_utils.jl")
-        @testset "compat" begin
-            include(joinpath("compat", "ad.jl"))
+    @testset "submodel - assume - no rhs" begin
+        @model function g()
+            a ~ Normal()
+            return "foo"
         end
-        @testset "extensions" begin
-            include("ext/DynamicPPLMCMCChainsExt.jl")
-            include("ext/DynamicPPLJETExt.jl")
+        @model function f()
+            x ~ Normal()
+            lhs ~ g()
+            return (__varinfo__, lhs)
         end
-        @testset "ad" begin
-            include("ext/DynamicPPLForwardDiffExt.jl")
-            include("ext/DynamicPPLMooncakeExt.jl")
-            include("ad.jl")
+        model = f()
+        (vi, lhs) = model()
+        # Check parent model varinfo
+        @test Set(keys(vi)) == Set([@varname(x), @varname(lhs.a)])
+        @test vi[@varname(x)] isa Float64
+        @test vi[@varname(lhs.a)] isa Float64
+        # check the lhs of submodel tilde
+        @test lhs isa OrderedDict
+        @test lhs[@varname(a)] isa Float64
+        @test lhs[@varname(a)] == vi[@varname(lhs.a)]
+        # check logp accumulated correctly
+        @test DynamicPPL.getlogp(vi) ≈
+            logpdf(Normal(), vi[@varname(x)]) + logpdf(Normal(), vi[@varname(lhs.a)])
+    end
+
+    @testset "submodel - assume - with rhs" begin
+        @model function g()
+            a ~ Normal()
+            return "foo"
         end
-        @testset "prob and logprob macro" begin
-            @test_throws ErrorException prob"..."
-            @test_throws ErrorException logprob"..."
+        @model function f()
+            x ~ Normal()
+            lhs ~ g() --> rhs
+            return (__varinfo__, lhs, rhs)
         end
-        @testset "doctests" begin
-            DocMeta.setdocmeta!(
-                DynamicPPL,
-                :DocTestSetup,
-                :(using DynamicPPL, Distributions);
-                recursive=true,
-            )
-            doctestfilters = [
-                # Ignore the source of a warning in the doctest output, since this is dependent on host.
-                # This is a line that starts with "└ @ " and ends with the line number.
-                r"└ @ .+:[0-9]+",
-            ]
-            doctest(DynamicPPL; manual=false, doctestfilters=doctestfilters)
+        model = f()
+        (vi, lhs, rhs) = model()
+        # Check parent model varinfo
+        @test Set(keys(vi)) == Set([@varname(x), @varname(lhs.a)])
+        @test vi[@varname(x)] isa Float64
+        @test vi[@varname(lhs.a)] isa Float64
+        # check the lhs of submodel tilde
+        @test lhs isa OrderedDict
+        @test lhs[@varname(a)] isa Float64
+        @test lhs[@varname(a)] == vi[@varname(lhs.a)]
+        # check the rhs
+        @test rhs == "foo"
+        # check logp accumulated correctly
+        @test DynamicPPL.getlogp(vi) ≈
+            logpdf(Normal(), vi[@varname(x)]) + logpdf(Normal(), vi[@varname(lhs.a)])
+    end
+
+    @testset "submodel - assume - nested with rhs" begin
+        # OK, this is getting a bit confusing, so I added some annotations.
+        @model function h()
+            q ~ Normal()
+            return "bar"
         end
+        @model function g()
+            p ~ Normal()
+            a ~ h() --> b
+            # Here, `a` should be an OrderedDict with a single key, `q`
+            # `b` should be "bar"
+            return ("foo", a, b)
+        end
+        @model function f()
+            x ~ Normal()
+            lhs ~ g() --> rhs
+            # Here, `lhs` should be an OrderedDict with two keys, `p` and `a`
+            # lhs[`p`] should be a Float64, and lhs[`a`] should itself be an
+            # OrderedDict with a single key `q`.
+            # `rhs` should be the return value of g, i.e. a 3-tuple
+            # ("foo", OrderedDict(`q` -> Float64), "bar")
+            return (__varinfo__, lhs, rhs)
+        end
+
+        model = f()
+        (vi, lhs, rhs) = model()
+        # Check parent model varinfo
+        @test Set(keys(vi)) == Set([@varname(x), @varname(lhs.p), @varname(lhs.a.q)])
+        @test vi[@varname(x)] isa Float64
+        @test vi[@varname(lhs.p)] isa Float64
+        @test vi[@varname(lhs.a.q)] isa Float64
+        # check the lhs of submodel tilde
+        @test lhs isa OrderedDict
+        @test lhs[@varname(p)] isa Float64
+        @test lhs[@varname(p)] == vi[@varname(lhs.p)]
+        @test_throws KeyError lhs[@varname(a)][@varname(q)] isa Float64
+        @test_throws KeyError lhs[@varname(a)][@varname(q)] == vi[@varname(lhs.a.q)]
+        # check the rhs of submodel tilde
+        (foo, a, bar) = rhs
+        @test foo == "foo"
+        @test a isa OrderedDict
+        @test_throws KeyError a[@varname(q)] isa Float64
+        @test_throws KeyError a[@varname(q)] == vi[@varname(lhs.a.q)]
+        @test bar == "bar"
+        # check logp accumulated correctly
+        @test DynamicPPL.getlogp(vi) ≈
+            logpdf(Normal(), vi[@varname(x)]) +
+              logpdf(Normal(), vi[@varname(lhs.p)]) +
+              logpdf(Normal(), vi[@varname(lhs.a.q)])
     end
 end
