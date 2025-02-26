@@ -84,6 +84,7 @@ export AbstractVarInfo,
     getargnames,
     extract_priors,
     values_as_in_model,
+    setadtype,
     # Samplers
     Sampler,
     SampleFromPrior,
