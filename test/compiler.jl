@@ -467,8 +467,8 @@ module Issue537 end
         m = demo_useval(missing, missing)
         vi = VarInfo(m)
         ks = keys(vi)
-        @test VarName{Symbol("sub1.x")}() ∈ ks
-        @test VarName{Symbol("sub2.x")}() ∈ ks
+        @test @varname(sub1.x) ∈ ks
+        @test @varname(sub2.x) ∈ ks
         @test @varname(z) ∈ ks
         @test abs(mean([VarInfo(m)[@varname(z)] for i in 1:10]) - 100) ≤ 10
 
