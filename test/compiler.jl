@@ -247,7 +247,7 @@ module Issue537 end
         @model function testmodel_nonarray(x, y)
             s ~ InverseGamma(2, 3)
             m ~ Normal(0, √s)
-            for i in 1:(length(x.a) - 1)
+            for i in 1:(length(x.a)-1)
                 x.a[i] ~ Normal(m, √s)
             end
 
@@ -351,8 +351,8 @@ module Issue537 end
         @test_broken f2_c() == 1
         @test_broken f3_c() == 1
         @test_broken getlogp(VarInfo(f1_c)) ==
-            getlogp(VarInfo(f2_c)) ==
-            getlogp(VarInfo(f3_c))
+                     getlogp(VarInfo(f2_c)) ==
+                     getlogp(VarInfo(f3_c))
     end
     @testset "custom tilde" begin
         @model demo() = begin
@@ -467,8 +467,8 @@ module Issue537 end
         m = demo_useval(missing, missing)
         vi = VarInfo(m)
         ks = keys(vi)
-        @test VarName{Symbol("sub1.x")}() ∈ ks
-        @test VarName{Symbol("sub2.x")}() ∈ ks
+        @test @varname(sub1.x) ∈ ks
+        @test @varname(sub2.x) ∈ ks
         @test @varname(z) ∈ ks
         @test abs(mean([VarInfo(m)[@varname(z)] for i in 1:10]) - 100) ≤ 10
 
@@ -479,7 +479,7 @@ module Issue537 end
             x = TV(undef, num_steps)
             x[1] = η[1]
             @inbounds for t in 2:num_steps
-                x[t] = @. α * x[t - 1] + δ * η[t]
+                x[t] = @. α * x[t-1] + δ * η[t]
             end
             return @. μ + σ * x
         end
@@ -500,8 +500,8 @@ module Issue537 end
         m = demo(ys)
         vi = VarInfo(m)
 
-        for k in [:α, :μ, :σ, Symbol("ar1_1.η"), Symbol("ar1_2.η")]
-            @test VarName{k}() ∈ keys(vi)
+        for vn in [@varname(α), @varname(μ), @varname(σ), @varname(ar1_1.η), @varname(ar1_2.η)]
+            @test vn ∈ keys(vi)
         end
     end
 
